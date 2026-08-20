@@ -1,4 +1,4 @@
-use axum::{Json, Router, routing::get};
+use axum::{Json, Router, routing::{delete, get, patch, post}};
 use serde::Deserialize;
 
 use crate::{
@@ -6,10 +6,12 @@ use crate::{
 };
 
 pub fn router() -> Router<AppState> {
-    Router::new().route(
-        "/assets",
-        get(list_assets).post(create_asset).patch(update_asset),
-    )
+    Router::new()
+        .route("/assets", get(list_assets).post(create_asset))
+        .route(
+            "/assets/{id}",
+            patch(update_asset).delete(delete_asset),
+        )
 }
 
 #[tracing::instrument(skip_all)]
@@ -22,6 +24,7 @@ async fn list_assets(repostiory: Repository) -> Result<Json<Vec<Asset>>, AppErro
 struct CreateAssetRequest {
     name: String,
     unit_value: f64,
+    quantity: f64,
 }
 
 #[tracing::instrument(skip_all)]
@@ -31,7 +34,7 @@ async fn create_asset(
     Json(request): Json<CreateAssetRequest>,
 ) -> Result<Json<Asset>, AppError> {
     let new_asset = repostiory
-        .create_asset(request.name, request.unit_value)
+        .create_asset(request.name, request.unit_value, request.quantity)
         .await?;
 
     Ok(Json(new_asset))
@@ -39,23 +42,38 @@ async fn create_asset(
 
 #[derive(Deserialize)]
 struct UpdateAssetRequest {
-    id: i64,
     name: Option<String>,
     unit_value: Option<f64>,
+    quantity: Option<f64>,
 }
 
 #[tracing::instrument(skip_all)]
 async fn update_asset(
     _: Admin,
     repostiory: Repository,
+    axum::extract::Path(id): axum::extract::Path<i64>,
     Json(request): Json<UpdateAssetRequest>,
 ) -> Result<Json<Asset>, AppError> {
     match repostiory
-        .update_asset(request.id, request.name, request.unit_value)
+        .update_asset(id, request.name, request.unit_value, request.quantity)
         .await?
     {
         Some(updated_asset) => Ok(Json(updated_asset)),
         None => Err(AppError::AssetDoesNotExist),
+    }
+}
+
+#[tracing::instrument(skip_all)]
+async fn delete_asset(
+    _: Admin,
+    repostiory: Repository,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let deleted = repostiory.delete_asset(id).await?;
+    if deleted {
+        Ok(Json(serde_json::json!({ "success": true })))
+    } else {
+        Err(AppError::AssetDoesNotExist)
     }
 }
 

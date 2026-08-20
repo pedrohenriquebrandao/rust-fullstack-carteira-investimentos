@@ -18,6 +18,9 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(index))
         .route("/login", get(login_page).post(login))
+        .route("/dashboard", get(dashboard))
+        .route("/modal/new-asset", get(new_asset_modal))
+        .route("/modal/edit-asset/{id}", get(edit_asset_modal))
 }
 
 #[derive(Template)]
@@ -50,12 +53,48 @@ async fn login(
     let token = user.auth_token()?;
     let cookie = Cookie::build(("token", token)).http_only(true);
 
-    Ok((jar.add(cookie), Redirect::to("/")))
+    Ok((jar.add(cookie), Redirect::to("/dashboard")))
 }
 
 async fn index(maybe_user: Option<User>) -> Result<Response, AppError> {
     match maybe_user {
-        Some(user) => Ok(Html(format!("Hello, {}", user.username())).into_response()),
+        Some(_) => Ok(Redirect::to("/dashboard").into_response()),
         None => Ok(Redirect::to("/login").into_response()),
     }
+}
+
+#[derive(Template)]
+#[template(path = "dashboard.html")]
+struct DashboardPage;
+
+async fn dashboard(_user: User) -> Result<Html<String>, AppError> {
+    let html = DashboardPage.render()?;
+    Ok(Html(html))
+}
+
+#[derive(Template)]
+#[template(path = "new_asset_modal.html")]
+struct NewAssetModal;
+
+async fn new_asset_modal() -> Result<Html<String>, AppError> {
+    let html = NewAssetModal.render()?;
+    Ok(Html(html))
+}
+
+#[derive(Template)]
+#[template(path = "edit_asset_modal.html")]
+struct EditAssetModal {
+    asset: crate::models::Asset,
+}
+
+async fn edit_asset_modal(
+    repository: Repository,
+    axum::extract::Path(id): axum::extract::Path<i64>,
+) -> Result<Html<String>, AppError> {
+    let assets = repository.list_assets().await?;
+    let asset = assets.into_iter().find(|a| a.id == id)
+        .ok_or(AppError::AssetDoesNotExist)?;
+
+    let html = EditAssetModal { asset }.render()?;
+    Ok(Html(html))
 }
